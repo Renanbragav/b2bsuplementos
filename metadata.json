@@ -1,0 +1,8 @@
+{
+  "name": "ColetivoB2B - Gestão de Pedidos Conjuntos",
+  "description": "Organizador profissional para pedidos coletivos de produtos com upload de planilhas de fornecedores, margem percentual, metas de valor e links com tempo limite para clientes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

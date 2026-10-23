@@ -1,0 +1,76 @@
+{
+  "entities": {
+    "Campaign": {
+      "title": "Campaign",
+      "description": "A group buying campaign holding catalogs and rules",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "maxLength": 200, "description": "Title of the buying round" },
+        "markupPercent": { "type": "number", "description": "Percentage markup to add to supplier prices" },
+        "defaultDurationHours": { "type": "number", "description": "Default hours for client orders" },
+        "defaultTargetAmount": { "type": "number", "description": "Default target currency amount per client" },
+        "status": { "type": "string", "maxLength": 50, "description": "active or closed" },
+        "createdAt": { "type": "string", "maxLength": 100, "description": "ISO date string" },
+        "updatedAt": { "type": "string", "maxLength": 100, "description": "ISO date string" }
+      },
+      "required": ["title", "markupPercent", "status", "createdAt"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Supplier catalog product with cost and markup",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "maxLength": 128, "description": "Associated campaign ID" },
+        "name": { "type": "string", "maxLength": 255, "description": "Product name" },
+        "sku": { "type": "string", "maxLength": 100, "description": "SKU code" },
+        "category": { "type": "string", "maxLength": 100, "description": "Product category" },
+        "supplier": { "type": "string", "maxLength": 150, "description": "Supplier name" },
+        "brand": { "type": "string", "maxLength": 150, "description": "Brand name" },
+        "quantityPerBox": { "type": "number", "description": "Quantity per box/pack" },
+        "ean": { "type": "string", "maxLength": 50, "description": "EAN barcode" },
+        "ncm": { "type": "string", "maxLength": 50, "description": "NCM fiscal code" },
+        "costPrice": { "type": "number", "description": "Original supplier price" },
+        "unitPrice": { "type": "number", "description": "Selling price after markup" },
+        "unit": { "type": "string", "maxLength": 50, "description": "Unit (un, cx, kg, etc.)" },
+        "minQuantity": { "type": "number", "description": "Minimum order quantity" },
+        "createdAt": { "type": "string", "maxLength": 100, "description": "ISO date string" }
+      },
+      "required": ["name", "costPrice", "unitPrice", "supplier"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Client order intent with quantities and goal tracking",
+      "type": "object",
+      "properties": {
+        "campaignId": { "type": "string", "maxLength": 128, "description": "Associated campaign ID" },
+        "clientName": { "type": "string", "maxLength": 200, "description": "Client company or person name" },
+        "clientWhatsapp": { "type": "string", "maxLength": 50, "description": "Client WhatsApp phone" },
+        "clientCnpj": { "type": "string", "maxLength": 50, "description": "Client CNPJ identification" },
+        "targetAmount": { "type": "number", "description": "Target purchase value goal in BRL" },
+        "totalAmount": { "type": "number", "description": "Current total order value" },
+        "totalItems": { "type": "number", "description": "Total units ordered" },
+        "durationHours": { "type": "number", "description": "Time limit in hours" },
+        "expiresAt": { "type": "string", "maxLength": 100, "description": "ISO timestamp when order expires" },
+        "status": { "type": "string", "maxLength": 50, "description": "open, submitted, or expired" },
+        "items": { "type": "string", "maxLength": 100000, "description": "JSON serialized map of ordered items" },
+        "createdAt": { "type": "string", "maxLength": 100, "description": "ISO date string" },
+        "updatedAt": { "type": "string", "maxLength": 100, "description": "ISO date string" }
+      },
+      "required": ["clientName", "clientWhatsapp", "clientCnpj", "totalAmount", "status"]
+    }
+  },
+  "firestore": {
+    "/campaigns/{campaignId}": {
+      "schema": "Campaign",
+      "description": "Purchasing campaigns configured by admin"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products uploaded from supplier spreadsheets"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Orders placed by clients"
+    }
+  }
+}
