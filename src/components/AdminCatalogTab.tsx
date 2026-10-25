@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { ProductItem } from '../types';
-import { parseSpreadsheet, downloadSampleSpreadsheet, getInitialSampleProducts } from '../lib/spreadsheet';
-import { formatCurrency } from '../lib/formatters';
+import { parseSpreadsheet, downloadSampleSpreadsheet, getInitialSampleProducts, exportProductsToExcel } from '../lib/spreadsheet';
+import { formatCurrency, formatDateTime } from '../lib/formatters';
 import {
   Upload,
   FileSpreadsheet,
@@ -15,7 +15,12 @@ import {
   AlertCircle,
   Sparkles,
   Building2,
-  RefreshCw
+  RefreshCw,
+  CheckCircle2,
+  Layers,
+  Eye,
+  ShieldCheck,
+  Package
 } from 'lucide-react';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -29,6 +34,7 @@ interface AdminCatalogTabProps {
   onAddProducts: (newProducts: ProductItem[]) => Promise<void>;
   onDeleteProduct: (id: string) => Promise<void>;
   onClearAllProducts: () => Promise<void>;
+  onDeleteSupplierProducts?: (supplierName: string) => Promise<void>;
   campaignId: string;
 }
 
@@ -42,6 +48,7 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
   onAddProducts,
   onDeleteProduct,
   onClearAllProducts,
+  onDeleteSupplierProducts,
   campaignId,
 }) => {
   const [newMarkupPix, setNewMarkupPix] = useState<number>(markupPercentPix ?? markupPercent ?? 15);
@@ -49,12 +56,14 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
   const [isApplyingMarkup, setIsApplyingMarkup] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [supplierInput, setSupplierInput] = useState('');
+  const [replaceSupplierMode, setReplaceSupplierMode] = useState(false);
   const [uploadMessage, setUploadMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSupplier, setSelectedSupplier] = useState('all');
 
   // Confirmation states
   const [productToDelete, setProductToDelete] = useState<ProductItem | null>(null);
+  const [supplierTableToDelete, setSupplierTableToDelete] = useState<{ name: string; count: number } | null>(null);
   const [isConfirmingClearAll, setIsConfirmingClearAll] = useState(false);
   const [isDeletingAction, setIsDeletingAction] = useState(false);
 
@@ -74,11 +83,64 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
 
   const suppliers = Array.from(new Set(products.map(p => p.supplier || 'Geral'))).sort();
 
+  // Summary of each saved supplier table
+  const supplierSummaries = useMemo(() => {
+    const map = new Map<string, {
+      name: string;
+      count: number;
+      minCost: number;
+      maxCost: number;
+      minPix: number;
+      maxPix: number;
+      minCard: number;
+      maxCard: number;
+      brands: Set<string>;
+      categories: Set<string>;
+      lastUpdated: string;
+    }>();
+
+    products.forEach(p => {
+      const sup = p.supplier || 'Geral';
+      const pix = p.unitPricePix ?? p.unitPrice ?? Number((p.costPrice * (1 + newMarkupPix / 100)).toFixed(2));
+      const card = p.unitPriceCard ?? Number((p.costPrice * (1 + newMarkupCard / 100)).toFixed(2));
+
+      if (!map.has(sup)) {
+        map.set(sup, {
+          name: sup,
+          count: 0,
+          minCost: p.costPrice,
+          maxCost: p.costPrice,
+          minPix: pix,
+          maxPix: pix,
+          minCard: card,
+          maxCard: card,
+          brands: new Set(),
+          categories: new Set(),
+          lastUpdated: p.createdAt || '',
+        });
+      }
+      const item = map.get(sup)!;
+      item.count += 1;
+      if (p.costPrice < item.minCost) item.minCost = p.costPrice;
+      if (p.costPrice > item.maxCost) item.maxCost = p.costPrice;
+      if (pix < item.minPix) item.minPix = pix;
+      if (pix > item.maxPix) item.maxPix = pix;
+      if (card < item.minCard) item.minCard = card;
+      if (card > item.maxCard) item.maxCard = card;
+      if (p.brand) item.brands.add(p.brand);
+      if (p.category) item.categories.add(p.category);
+      if (p.createdAt && (!item.lastUpdated || p.createdAt > item.lastUpdated)) item.lastUpdated = p.createdAt;
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, newMarkupPix, newMarkupCard]);
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!supplierInput.trim()) {
+    const trimmedSupplier = supplierInput.trim();
+    if (!trimmedSupplier) {
       setUploadMessage({
         text: 'Atenção: É obrigatório identificar o Fornecedor no campo ao lado antes de importar a planilha!',
         type: 'error',
@@ -91,10 +153,16 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
     setUploadMessage(null);
 
     try {
+      // If user chose to replace previous products for this specific supplier
+      const existingCount = products.filter(p => (p.supplier || '').toLowerCase() === trimmedSupplier.toLowerCase()).length;
+      if (replaceSupplierMode && existingCount > 0 && onDeleteSupplierProducts) {
+        await onDeleteSupplierProducts(trimmedSupplier);
+      }
+
       const { products: parsed, errors } = await parseSpreadsheet(
         file,
         campaignId,
-        supplierInput.trim(),
+        trimmedSupplier,
         newMarkupPix,
         newMarkupCard
       );
@@ -107,7 +175,7 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
       } else {
         await onAddProducts(parsed);
         setUploadMessage({
-          text: `Sucesso! ${parsed.length} produtos do fornecedor "${supplierInput.trim()}" importados com margem PIX (+${newMarkupPix}%) e Cartão (+${newMarkupCard}%).`,
+          text: `Sucesso! Tabela do fornecedor "${trimmedSupplier}" (${parsed.length} produtos) salva com sucesso no Firebase. Ela permanecerá salva permanentemente até você decidir apagá-la.`,
           type: 'success',
         });
       }
@@ -116,6 +184,39 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteSupplierConfirmed = async () => {
+    if (!supplierTableToDelete || !onDeleteSupplierProducts) return;
+    setIsDeletingAction(true);
+    try {
+      await onDeleteSupplierProducts(supplierTableToDelete.name);
+      if (selectedSupplier === supplierTableToDelete.name) {
+        setSelectedSupplier('all');
+      }
+      setUploadMessage({
+        text: `Tabela do fornecedor "${supplierTableToDelete.name}" e seus ${supplierTableToDelete.count} produtos foram excluídos. As demais tabelas de fornecedores permanecem salvas e protegidas.`,
+        type: 'success',
+      });
+      setSupplierTableToDelete(null);
+    } catch (err: any) {
+      setUploadMessage({ text: 'Falha ao excluir tabela do fornecedor.', type: 'error' });
+    } finally {
+      setIsDeletingAction(false);
+    }
+  };
+
+  const handleExportSupplier = (supName: string) => {
+    const list = products.filter(p => (p.supplier || 'Geral') === supName);
+    if (list.length === 0) return;
+    exportProductsToExcel(list, `Tabela_Fornecedor_${supName.replace(/[^a-zA-Z0-9_-]/g, '_')}`);
+  };
+
+  const handleTriggerUploadForSupplier = (supName: string) => {
+    setSupplierInput(supName);
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
@@ -305,6 +406,22 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
               </div>
             </div>
 
+            {/* Mode selection for existing supplier */}
+            <div className="pt-1 flex items-center justify-between gap-2 text-[11px] text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <label className="flex items-center gap-2 cursor-pointer font-medium select-none">
+                <input
+                  type="checkbox"
+                  checked={replaceSupplierMode}
+                  onChange={e => setReplaceSupplierMode(e.target.checked)}
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Substituir produtos anteriores deste mesmo fornecedor ao importar nova planilha</span>
+              </label>
+              <span className="text-[10px] text-slate-400 hidden sm:inline">
+                {replaceSupplierMode ? 'Substituirá tabela antiga' : 'Manterá os itens e somará os novos'}
+              </span>
+            </div>
+
             <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 text-xs">
               <button
                 onClick={handleLoadDemoCatalog}
@@ -429,21 +546,192 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
         </div>
       </div>
 
+      {/* SEÇÃO: Tabelas dos Fornecedores Salvas no Sistema */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900">
+                  Tabelas de Fornecedores Salvas
+                </h3>
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  {supplierSummaries.length} {supplierSummaries.length === 1 ? 'fornecedor salvo' : 'fornecedores salvos'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Cada tabela de fornecedor fica salva permanentemente no Firebase Firestore até que você decida excluí-la.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>Persistência Permanente Ativa</span>
+          </div>
+        </div>
+
+        {supplierSummaries.length === 0 ? (
+          <div className="p-8 text-center text-slate-500 bg-slate-50/70 rounded-xl border border-dashed border-slate-200">
+            <Package className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+            <p className="font-bold text-slate-800 text-xs">Nenhuma tabela de fornecedor salva ainda</p>
+            <p className="text-[11px] text-slate-400 mt-0.5 max-w-md mx-auto">
+              Digite o nome do fornecedor no campo acima e envie sua planilha Excel ou CSV para salvar a primeira tabela no sistema.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {supplierSummaries.map(sup => {
+              const isSelected = selectedSupplier === sup.name;
+              return (
+                <div
+                  key={sup.name}
+                  className={`p-4 rounded-xl border-2 transition-all flex flex-col justify-between ${
+                    isSelected
+                      ? 'border-blue-500 bg-blue-50/30 shadow-xs ring-2 ring-blue-500/20'
+                      : 'border-slate-200/90 bg-slate-50/50 hover:bg-white hover:border-slate-300 hover:shadow-xs'
+                  }`}
+                >
+                  <div className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1.5 bg-white text-blue-600 rounded-lg border border-slate-200 shadow-2xs">
+                          <Building2 className="w-4 h-4" />
+                        </span>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900 leading-tight">
+                            {sup.name}
+                          </h4>
+                          <span className="text-[10px] text-slate-400 block">
+                            {sup.lastUpdated ? `Salvo em ${formatDateTime(sup.lastUpdated)}` : 'Salvo no banco de dados'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        Salva
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs py-2 px-2.5 bg-white rounded-lg border border-slate-200/80">
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Produtos</span>
+                        <span className="font-extrabold text-slate-900 text-sm">{sup.count} itens</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 uppercase font-bold block">Faixa de Custo</span>
+                        <span className="font-bold text-slate-800 text-xs">
+                          {formatCurrency(sup.minCost)} - {formatCurrency(sup.maxCost)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {sup.brands.size > 0 && (
+                      <div className="flex items-center gap-1 text-[11px] text-slate-500 overflow-hidden text-ellipsis whitespace-nowrap">
+                        <span className="font-bold text-slate-700">Marcas:</span>
+                        <span className="truncate">{Array.from(sup.brands).join(', ')}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-3 mt-3 border-t border-slate-200/70 flex items-center justify-between gap-1.5">
+                    <button
+                      onClick={() => setSelectedSupplier(isSelected ? 'all' : sup.name)}
+                      className={`flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                        isSelected
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                      title={isSelected ? 'Mostrando produtos deste fornecedor' : 'Filtrar produtos desta tabela'}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{isSelected ? 'Filtrado' : 'Ver Itens'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleExportSupplier(sup.name)}
+                      className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-600 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 transition-colors"
+                      title="Exportar planilha Excel deste fornecedor"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleTriggerUploadForSupplier(sup.name)}
+                      className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-600 hover:text-emerald-700 bg-white hover:bg-emerald-50 border border-slate-200 transition-colors"
+                      title="Atualizar / importar nova planilha para este fornecedor"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => setSupplierTableToDelete({ name: sup.name, count: sup.count })}
+                      className="inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 transition-colors"
+                      title="Excluir somente esta tabela de fornecedor"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Catalog Table */}
       <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
             <h4 className="text-sm font-bold text-slate-900 whitespace-nowrap">
               Produtos no Catálogo ({filteredProducts.length})
             </h4>
 
-            {products.length > 0 && (
-              <button
-                onClick={() => setIsConfirmingClearAll(true)}
-                className="text-xs text-rose-600 hover:text-rose-700 hover:underline font-bold transition-colors"
-              >
-                Limpar Catálogo
-              </button>
+            {selectedSupplier !== 'all' ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  Tabela: {selectedSupplier}
+                </span>
+                <button
+                  onClick={() => setSelectedSupplier('all')}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-bold underline"
+                  title="Mostrar todos os fornecedores"
+                >
+                  Ver Todos
+                </button>
+                <button
+                  onClick={() => handleExportSupplier(selectedSupplier)}
+                  className="text-xs text-slate-600 hover:text-blue-600 font-medium underline flex items-center gap-1 ml-1"
+                  title="Exportar esta tabela para Excel"
+                >
+                  <Download className="w-3 h-3" />
+                  <span>Exportar Excel</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const sup = supplierSummaries.find(s => s.name === selectedSupplier);
+                    if (sup) setSupplierTableToDelete({ name: sup.name, count: sup.count });
+                  }}
+                  className="text-xs text-rose-600 hover:text-rose-800 font-bold underline flex items-center gap-1 ml-1"
+                  title="Excluir somente esta tabela de fornecedor"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Excluir Tabela</span>
+                </button>
+              </div>
+            ) : (
+              products.length > 0 && (
+                <button
+                  onClick={() => setIsConfirmingClearAll(true)}
+                  className="text-xs text-rose-600 hover:text-rose-700 hover:underline font-bold transition-colors"
+                >
+                  Limpar Todo o Catálogo
+                </button>
+              )
             )}
           </div>
 
@@ -462,9 +750,9 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
             <select
               value={selectedSupplier}
               onChange={e => setSelectedSupplier(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-700 font-medium focus:outline-none"
+              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-slate-700 font-semibold focus:outline-none"
             >
-              <option value="all">Todos Fornecedores</option>
+              <option value="all">Todos Fornecedores ({suppliers.length})</option>
               {suppliers.map(s => (
                 <option key={s} value={s}>
                   {s}
@@ -607,6 +895,18 @@ export const AdminCatalogTab: React.FC<AdminCatalogTabProps> = ({
           }
         }}
         onCancel={() => setIsConfirmingClearAll(false)}
+      />
+
+      {/* Confirmation Modal: Delete Specific Supplier Table */}
+      <ConfirmModal
+        isOpen={Boolean(supplierTableToDelete)}
+        title={`Excluir Tabela do Fornecedor "${supplierTableToDelete?.name}"`}
+        message={`Atenção! Você está prestes a apagar a tabela do fornecedor "${supplierTableToDelete?.name}" com todos os seus ${supplierTableToDelete?.count} produtos do Firebase Firestore. As tabelas dos outros fornecedores continuarão salvas e protegidas. Deseja excluir somente esta tabela?`}
+        confirmLabel="Sim, Excluir Somente Esta Tabela"
+        isDangerous={true}
+        isLoading={isDeletingAction}
+        onConfirm={handleDeleteSupplierConfirmed}
+        onCancel={() => setSupplierTableToDelete(null)}
       />
 
       {/* Manual Product Modal */}

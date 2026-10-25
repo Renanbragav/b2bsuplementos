@@ -17,6 +17,7 @@ import {
   testConnection,
   clearAllProductsFromFirestore,
   clearAllOrdersFromFirestore,
+  deleteProductsBySupplier,
 } from './lib/firebase';
 import { getInitialSampleProducts } from './lib/spreadsheet';
 import { Navbar } from './components/Navbar';
@@ -170,6 +171,11 @@ export default function App() {
   const handleDeleteProduct = async (id: string) => {
     await deleteProduct(id);
     setProducts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleDeleteSupplierProducts = async (supplierName: string) => {
+    await deleteProductsBySupplier(supplierName);
+    setProducts(prev => prev.filter(p => p.supplier !== supplierName));
   };
 
   const handleClearAllProducts = async () => {
@@ -570,6 +576,7 @@ export default function App() {
               onAddProducts={handleAddProducts}
               onDeleteProduct={handleDeleteProduct}
               onClearAllProducts={handleClearAllProducts}
+              onDeleteSupplierProducts={handleDeleteSupplierProducts}
               campaignId={campaign.id}
             />
           )}

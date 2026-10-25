@@ -565,3 +565,25 @@ export function getInitialSampleProducts(
     };
   });
 }
+
+export function exportProductsToExcel(products: ProductItem[], filename: string) {
+  const rows = products.map(p => ({
+    'Código/SKU': p.sku || '',
+    'Produto': p.name || '',
+    'Fornecedor': p.supplier || '',
+    'Marca': p.brand || p.supplier || '',
+    'Categoria': p.category || '',
+    'Qtd por Caixa': p.quantityPerBox || 1,
+    'Unidade': p.unit || 'un',
+    'Preço de Custo (R$)': p.costPrice || 0,
+    'Preço PIX (R$)': p.unitPricePix ?? p.unitPrice ?? 0,
+    'Preço Cartão 10x (R$)': p.unitPriceCard ?? 0,
+    'Código EAN/Barras': p.ean || '',
+    'NCM': p.ncm || '',
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Catálogo');
+  XLSX.writeFile(workbook, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+}

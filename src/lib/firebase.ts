@@ -11,6 +11,7 @@ import {
   writeBatch,
   onSnapshot,
   query,
+  where,
   getDocFromServer
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -200,6 +201,27 @@ export async function clearAllProductsFromFirestore(): Promise<void> {
     }
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, Collections.PRODUCTS);
+  }
+}
+
+export async function deleteProductsBySupplier(supplier: string): Promise<number> {
+  try {
+    const q = query(collection(db, Collections.PRODUCTS), where('supplier', '==', supplier));
+    const snap = await getDocs(q);
+    if (snap.empty) return 0;
+    const chunkSize = 400;
+    for (let i = 0; i < snap.docs.length; i += chunkSize) {
+      const chunk = snap.docs.slice(i, i + chunkSize);
+      const batch = writeBatch(db);
+      chunk.forEach(d => {
+        batch.delete(doc(db, Collections.PRODUCTS, d.id));
+      });
+      await batch.commit();
+    }
+    return snap.docs.length;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, Collections.PRODUCTS);
+    return 0;
   }
 }
 

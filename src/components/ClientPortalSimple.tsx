@@ -27,8 +27,12 @@ import {
   QrCode,
   Sparkles,
   CloudCheck,
-  Cloud
+  Cloud,
+  Camera,
+  Image as ImageIcon
 } from 'lucide-react';
+import { OrderMirrorModal } from './OrderMirrorModal';
+import { ComboFlyerModal } from './ComboFlyerModal';
 
 interface ClientPortalSimpleProps {
   products: ProductItem[];
@@ -83,6 +87,8 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
   const [isSavedSuccess, setIsSavedSuccess] = useState(false);
   const [isSummaryCopied, setIsSummaryCopied] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isOrderMirrorOpen, setIsOrderMirrorOpen] = useState(false);
+  const [isComboFlyerOpen, setIsComboFlyerOpen] = useState(false);
 
   // Interaction & Initialization tracking refs
   const hasUserInteractedRef = useRef(false);
@@ -251,6 +257,7 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
           productId: p.id,
           name: p.name,
           sku: p.sku,
+          imageUrl: p.imageUrl,
           category: p.category,
           supplier: p.supplier,
           brand: p.brand || p.supplier,
@@ -854,6 +861,7 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                    <th className="py-3 px-3 text-center w-12">Foto</th>
                     <th className="py-3 px-3">Marca / Fornecedor</th>
                     <th className="py-3 px-3">Produto / Descrição</th>
                     <th className="py-3 px-3 text-center">Qtd / Caixa</th>
@@ -924,6 +932,23 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
                           isSelected ? 'bg-blue-50/30' : 'hover:bg-slate-50/70'
                         }`}
                       >
+                        <td className="py-3 px-3 text-center">
+                          {prod.imageUrl ? (
+                            <img
+                              src={prod.imageUrl}
+                              alt={prod.name}
+                              className="w-10 h-10 object-cover rounded-lg border border-slate-200 shadow-xs mx-auto bg-white"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(prod.name)}&background=e2e8f0&color=475569&size=80`;
+                              }}
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 mx-auto">
+                              <ImageIcon className="w-4 h-4 text-slate-300" />
+                            </div>
+                          )}
+                        </td>
                         <td className="py-3 px-3 font-medium text-slate-800 whitespace-nowrap">
                           <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[11px]">
                             {prod.brand || prod.supplier}
@@ -1323,6 +1348,25 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => setIsOrderMirrorOpen(true)}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>📄 Espelho PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsComboFlyerOpen(true)}
+                className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all"
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>📸 Foto do Combo</span>
+              </button>
+            </div>
+
             <div className="flex gap-2">
               <button
                 type="button"
@@ -1352,6 +1396,63 @@ export const ClientPortalSimple: React.FC<ClientPortalSimpleProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal: Espelho do Pedido em PDF com Fotos */}
+      {isOrderMirrorOpen && (
+        <OrderMirrorModal
+          order={
+            currentOrder || {
+              id: `temp_${Date.now()}`,
+              campaignId: '',
+              clientName: clientName || 'Cliente',
+              clientCnpj: clientCnpj || '',
+              clientWhatsapp: clientWhatsapp || '',
+              paymentMethod,
+              totalAmount: totalOrderAmount,
+              totalAmountPix: totalOrderAmountPix,
+              totalAmountCard: totalOrderAmountCard,
+              totalUnits: totalOrderUnits,
+              items: orderItemsList,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          }
+          campaignTitle={campaignTitle}
+          onClose={() => setIsOrderMirrorOpen(false)}
+          onOpenComboFlyer={() => {
+            setIsOrderMirrorOpen(false);
+            setIsComboFlyerOpen(true);
+          }}
+        />
+      )}
+
+      {/* Modal: Foto do Combo Flyer Promocional com Fotos */}
+      {isComboFlyerOpen && (
+        <ComboFlyerModal
+          products={products}
+          order={
+            currentOrder || {
+              id: `temp_${Date.now()}`,
+              campaignId: '',
+              clientName: clientName || 'Cliente',
+              clientCnpj: clientCnpj || '',
+              clientWhatsapp: clientWhatsapp || '',
+              paymentMethod,
+              totalAmount: totalOrderAmount,
+              totalAmountPix: totalOrderAmountPix,
+              totalAmountCard: totalOrderAmountCard,
+              totalUnits: totalOrderUnits,
+              items: orderItemsList,
+              status: 'pending',
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          }
+          campaignTitle={campaignTitle}
+          onClose={() => setIsComboFlyerOpen(false)}
+        />
       )}
     </div>
   );

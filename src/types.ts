@@ -6,6 +6,7 @@ export interface ProductItem {
   category: string;
   supplier: string;
   brand?: string;
+  imageUrl?: string; // Product photo (URL or Base64 Data URL)
   quantityPerBox?: number;
   ean?: string;
   ncm?: string;
@@ -25,6 +26,7 @@ export interface OrderItem {
   category: string;
   supplier: string;
   brand?: string;
+  imageUrl?: string; // Product photo for receipts and combo flyers
   quantityPerBox?: number;
   ean?: string;
   ncm?: string;
